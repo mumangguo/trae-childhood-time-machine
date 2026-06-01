@@ -106,14 +106,33 @@ async function already24h(ip, fp) {
 app.get('/api/health', async (_req, res) => {
   try {
     await dbReady;
+    const dbType = process.env.TURSO_DATABASE_URL ? 'turso' : (process.env.VERCEL ? 'tmp-sqlite' : 'local-sqlite');
     res.json({
       ok: true,
-      db: process.env.TURSO_DATABASE_URL ? 'turso' : (process.env.VERCEL ? 'tmp-sqlite' : 'local-sqlite'),
+      db: dbType,
+      persistent: dbType === 'turso' || dbType === 'local-sqlite',
+      warning: dbType === 'tmp-sqlite' ? 'Vercel 当前未配置 TURSO_DATABASE_URL，数据只在 /tmp 临时保存，冷启动后会丢失。' : null,
       sensitiveWords: sensitive.size,
     });
   } catch (e) {
     res.status(500).json({ ok: false, msg: e.message });
   }
+});
+
+app.get('/api/client-info', (req, res) => {
+  const ip = clientIp(req);
+  const country = req.headers['x-vercel-ip-country'] || '';
+  const region = req.headers['x-vercel-ip-country-region'] || '';
+  const city = req.headers['x-vercel-ip-city'] || '';
+  res.json({
+    ok: true,
+    data: {
+      ip,
+      country: decodeURIComponent(String(country || '')),
+      province: decodeURIComponent(String(region || '')),
+      city: decodeURIComponent(String(city || '')),
+    }
+  });
 });
 
 app.post('/api/dream', ensureDb, async (req, res) => {

@@ -38,6 +38,8 @@
     </div>
   </div>
 
+  <div id="dbTip" class="pixel-sub" style="display:none; border:1px solid #ff6464; color:#ff6464; padding:12px 16px; margin-bottom:24px; text-align:center; font-size:12px; line-height:1.7;"></div>
+
   <div id="wallGrid" class="wall-grid"></div>
 
   <div id="wallLoading" class="loading">> 正在加载梦想...</div>
@@ -69,6 +71,12 @@ $(function () {
   const size = 12;
   let loading = false;
   let finished = false;
+
+  TM.api('/api/health').then((h) => {
+    if (h && h.ok && !h.persistent) {
+      $('#dbTip').text('当前线上数据库是临时模式（tmp-sqlite），冷启动会丢失数据。请在 Vercel 配置 TURSO_DATABASE_URL 和 TURSO_AUTH_TOKEN 后重新部署，梦想墙才会持久保存。').show();
+    }
+  });
 
   function renderItem(d) {
     const traeHtml = d.trae

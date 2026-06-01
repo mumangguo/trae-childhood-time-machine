@@ -156,17 +156,14 @@ window.TM = (function () {
     return _fpPromise;
   }
 
-  // ---- B 站 IP 接口（JSONP 风格的 fetch，仅用于前端展示） ----
-  async function getMyIp() {
+  // ---- 用户网络信息：走同域后端，避免第三方接口 CORS/403 ----
+  async function getClientInfo() {
     try {
-      const res = await fetch('https://api.bilibili.com/x/web-interface/zone?jsonp=jsonp', {
-        credentials: 'omit'
-      });
-      const j = await res.json();
-      if (j && j.code === 0 && j.data) return j.data; // { addr, country, province, city, isp, ... }
+      const j = await api('/api/client-info');
+      if (j && j.ok) return j.data;
     } catch (e) {}
     return null;
   }
 
-  return { toast, api, fmtTime, esc, bindCounter, decorate, lenOf, getFingerprint, getMyIp };
+  return { toast, api, fmtTime, esc, bindCounter, decorate, lenOf, getFingerprint, getClientInfo };
 })();

@@ -86,13 +86,13 @@ $(function () {
   TM.bindCounter('#dream', '#dreamCounter', 100, 5);
   TM.bindCounter('#trae', '#traeCounter', 50);
 
-  // 异步预热指纹 + 显示 IP 归属
+  // 异步预热指纹 + 显示 IP 归属（走同域后端，避免第三方接口 CORS）
   TM.getFingerprint();
-  TM.getMyIp().then((d) => {
+  TM.getClientInfo().then((d) => {
     if (!d) return;
     const loc = [d.country, d.province, d.city].filter(Boolean).join(' · ');
-    const addr = d.addr || '';
-    $('#ipTip').html('> 检测到你来自 <span style="color:var(--trae-green);">' + (loc || addr) + '</span>，限同 IP / 设备 24h 内 1 条');
+    const ip = d.ip || '';
+    $('#ipTip').html('> 检测到你的网络标识 <span style="color:var(--trae-green);">' + (loc || ip || '已记录') + '</span>，限同 IP / 设备 24h 内 1 条');
   });
 
   let submitting = false;
