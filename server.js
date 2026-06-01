@@ -1,43 +1,56 @@
 /**
  * 童年时光机 · 我的梦想档案馆
- * Express + better-sqlite3
+ * Express + @libsql/client (Turso)
+ *
+ * 环境变量：
+ *   TURSO_DATABASE_URL  Turso 数据库 URL（libsql://xxx.turso.io 或 file:./data/dreams.db）
+ *   TURSO_AUTH_TOKEN    Turso 鉴权 token（远端必填，本地 file: 可省略）
+ *
+ * 不设环境变量时，本地默认落到 ./data/dreams.db 文件。
  */
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ---------- 数据库 ----------
-// Vercel 文件系统只读，仅 /tmp 可写
-const DB_DIR = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'data');
-if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-const DB_PATH = path.join(DB_DIR, 'dreams.db');
+function buildDbConfig() {
+  if (process.env.TURSO_DATABASE_URL) {
+    return {
+      url: process.env.TURSO_DATABASE_URL,
+      authToken: process.env.TURSO_AUTH_TOKEN || undefined,
+    };
+  }
+  // 本地兜底：写入 ./data/dreams.db
+  const dir = path.join(__dirname, 'data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return { url: 'file:' + path.join(dir, 'dreams.db') };
+}
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS dreams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nickname    TEXT NOT NULL,
-    dream       TEXT NOT NULL,
-    trae        TEXT,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+const db = createClient(buildDbConfig());
 
-const stmtInsert = db.prepare(
-  'INSERT INTO dreams (nickname, dream, trae) VALUES (?, ?, ?)'
-);
-const stmtList = db.prepare(
-  'SELECT id, nickname, dream, trae, create_time FROM dreams ORDER BY id DESC LIMIT ? OFFSET ?'
-);
-const stmtCount = db.prepare('SELECT COUNT(*) AS c FROM dreams');
-const stmtOne = db.prepare(
-  'SELECT id, nickname, dream, trae, create_time FROM dreams WHERE id = ?'
-);
+let dbReady = (async () => {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS dreams (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nickname    TEXT NOT NULL,
+      dream       TEXT NOT NULL,
+      trae        TEXT,
+      create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+})().catch((e) => {
+  console.error('DB init failed:', e);
+});
+
+// 中间件：确保表已创建后再处理 API
+async function ensureDb(req, res, next) {
+  try { await dbReady; next(); }
+  catch (e) { res.status(500).json({ ok: false, msg: '数据库初始化失败' }); }
+}
 
 // ---------- 中间件 ----------
 app.use(express.json({ limit: '32kb' }));
@@ -56,7 +69,6 @@ function antiSpam(req) {
   const last = recentSubmits.get(key);
   if (last && now - last < 5000) return true;
   recentSubmits.set(key, now);
-  // 简单清理
   if (recentSubmits.size > 500) {
     for (const [k, t] of recentSubmits) if (now - t > 60000) recentSubmits.delete(k);
   }
@@ -65,7 +77,7 @@ function antiSpam(req) {
 
 // ---------- API ----------
 // 发布梦想
-app.post('/api/dream', (req, res) => {
+app.post('/api/dream', ensureDb, async (req, res) => {
   try {
     let { nickname, dream, trae } = req.body || {};
     nickname = (nickname || '').toString().trim();
@@ -84,8 +96,13 @@ app.post('/api/dream', (req, res) => {
     if (antiSpam(req)) {
       return res.status(429).json({ ok: false, msg: '提交太快啦，请稍后再试' });
     }
-    const info = stmtInsert.run(nickname, dream, trae || null);
-    const row = stmtOne.get(info.lastInsertRowid);
+
+    const result = await db.execute({
+      sql: 'INSERT INTO dreams (nickname, dream, trae) VALUES (?, ?, ?)',
+      args: [nickname, dream, trae || null],
+    });
+    const id = Number(result.lastInsertRowid);
+    const row = await getOne(id);
     res.json({ ok: true, data: row });
   } catch (e) {
     console.error(e);
@@ -94,13 +111,21 @@ app.post('/api/dream', (req, res) => {
 });
 
 // 列表（分页）
-app.get('/api/dreams', (req, res) => {
+app.get('/api/dreams', ensureDb, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const size = Math.min(50, Math.max(1, parseInt(req.query.size) || 12));
     const offset = (page - 1) * size;
-    const list = stmtList.all(size, offset);
-    const total = stmtCount.get().c;
+
+    const [listRs, countRs] = await Promise.all([
+      db.execute({
+        sql: 'SELECT id, nickname, dream, trae, create_time FROM dreams ORDER BY id DESC LIMIT ? OFFSET ?',
+        args: [size, offset],
+      }),
+      db.execute('SELECT COUNT(*) AS c FROM dreams'),
+    ]);
+    const list = listRs.rows.map(rowToObj);
+    const total = Number(countRs.rows[0].c);
     res.json({ ok: true, data: list, page, size, total, hasMore: offset + list.length < total });
   } catch (e) {
     console.error(e);
@@ -109,11 +134,11 @@ app.get('/api/dreams', (req, res) => {
 });
 
 // 单条
-app.get('/api/dream/:id', (req, res) => {
+app.get('/api/dream/:id', ensureDb, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (!id) return res.status(400).json({ ok: false, msg: '参数错误' });
-    const row = stmtOne.get(id);
+    const row = await getOne(id);
     if (!row) return res.status(404).json({ ok: false, msg: '梦想不存在' });
     res.json({ ok: true, data: row });
   } catch (e) {
@@ -121,6 +146,25 @@ app.get('/api/dream/:id', (req, res) => {
     res.status(500).json({ ok: false, msg: '服务器开小差啦' });
   }
 });
+
+// ---------- 工具 ----------
+function rowToObj(row) {
+  // libsql Row 是数组风格，但带列名属性
+  return {
+    id: Number(row.id),
+    nickname: row.nickname,
+    dream: row.dream,
+    trae: row.trae,
+    create_time: row.create_time,
+  };
+}
+async function getOne(id) {
+  const rs = await db.execute({
+    sql: 'SELECT id, nickname, dream, trae, create_time FROM dreams WHERE id = ?',
+    args: [id],
+  });
+  return rs.rows[0] ? rowToObj(rs.rows[0]) : null;
+}
 
 // ---------- 页面路由 ----------
 const VIEWS = path.join(__dirname, 'views');
