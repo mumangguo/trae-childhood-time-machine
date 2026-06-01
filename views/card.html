@@ -63,6 +63,7 @@
     </div>
 
     <div class="card-actions">
+      <button class="btn-pixel solid" id="btnSolo"><i class="fa-solid fa-wand-magic-sparkles"></i> 用 TRAE SOLO 实现梦想</button>
       <button class="btn-pixel" id="btnSave"><i class="fa-solid fa-download"></i> 保存图片</button>
       <button class="btn-pixel" id="btnCopy"><i class="fa-solid fa-link"></i> 复制链接</button>
       <a class="btn-pixel ghost" href="/wall.html"><i class="fa-solid fa-images"></i> 去梦想墙</a>
@@ -111,6 +112,50 @@ $(async function () {
 
   $('#loadingBox').hide();
   $('#cardStage').show();
+
+  function buildSoloPrompt(d) {
+    return [
+      '请用 TRAE SOLO 帮我把这个童年梦想做成一个可运行的小作品。',
+      '',
+      '我的昵称：' + d.nickname,
+      '我的童年梦想：' + d.dream,
+      d.trae ? ('现在我想用 TRAE：' + d.trae) : '',
+      '',
+      '作品要求：',
+      '1. 做成一个黑绿像素风的小网站，风格接近 TRAE 官网；',
+      '2. 要有童年、梦想、时光机、星星或纸飞机等元素；',
+      '3. 页面需要有明显标题、互动按钮和适合截图分享的成品效果；',
+      '4. 请直接生成完整可运行的前端代码，并说明如何运行。'
+    ].filter(Boolean).join('\n');
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      const t = document.createElement('textarea');
+      t.value = text;
+      document.body.appendChild(t);
+      t.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (er) {}
+      document.body.removeChild(t);
+      return ok;
+    }
+  }
+
+  $('#btnSolo').on('click', async function () {
+    const prompt = buildSoloPrompt(d);
+    await copyText(prompt);
+    const overlay = document.createElement('div');
+    overlay.className = 'solo-transition show';
+    overlay.innerHTML = '<div class="solo-beam"></div><div class="solo-portal"><div class="pixel-title">梦想正在传送到 TRAE SOLO</div><p>> 提示词已复制到剪贴板<br/>> 即将进入 SOLO，请在输入框粘贴并回车</p></div>';
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+      location.href = '/solo.html?id=' + encodeURIComponent(d.id);
+    }, 1500);
+  });
 
   // 复制链接
   $('#btnCopy').on('click', async function () {

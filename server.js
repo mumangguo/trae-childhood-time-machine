@@ -254,6 +254,8 @@ app.get('/card', sendPage('card.html'));
 app.get('/card.html', sendPage('card.html'));
 app.get('/wall', sendPage('wall.html'));
 app.get('/wall.html', sendPage('wall.html'));
+app.get('/solo', sendPage('solo.html'));
+app.get('/solo.html', sendPage('solo.html'));
 
 app.use((_req, res) => {
   res.status(404).sendFile(path.join(VIEWS, '404.html'));
