@@ -20,6 +20,14 @@ function buildDbConfig() {
       authToken: process.env.TURSO_AUTH_TOKEN || undefined,
     };
   }
+
+  // Vercel 函数目录 /var/task 是只读的；没配置 Turso 时只能临时写 /tmp。
+  // 注意：/tmp 非持久化，只用于避免页面崩溃。线上持久化必须配置 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN。
+  if (process.env.VERCEL) {
+    console.warn('[db] TURSO_DATABASE_URL missing; using ephemeral /tmp/dreams.db');
+    return { url: 'file:/tmp/dreams.db' };
+  }
+
   const dir = path.join(__dirname, 'data');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return { url: 'file:' + path.join(dir, 'dreams.db') };
@@ -95,6 +103,19 @@ async function already24h(ip, fp) {
 }
 
 // ---------- API ----------
+app.get('/api/health', async (_req, res) => {
+  try {
+    await dbReady;
+    res.json({
+      ok: true,
+      db: process.env.TURSO_DATABASE_URL ? 'turso' : (process.env.VERCEL ? 'tmp-sqlite' : 'local-sqlite'),
+      sensitiveWords: sensitive.size,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, msg: e.message });
+  }
+});
+
 app.post('/api/dream', ensureDb, async (req, res) => {
   try {
     let { nickname, dream, trae, fp } = req.body || {};
