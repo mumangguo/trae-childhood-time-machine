@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>梦想墙 · 童年时光机</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="icon" href="https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae_website_prod_cn/favicon.png">
+</head>
+<body>
+
+<nav class="nav-bar">
+  <a href="/" class="brand">TRA<span class="dot">E</span> · 时光机</a>
+  <div class="nav-links">
+    <a href="/"><i class="fa-solid fa-house"></i> 首页</a>
+    <a href="/create.html"><i class="fa-solid fa-feather-pointed"></i> 写梦想</a>
+    <a href="/wall.html"><i class="fa-solid fa-images"></i> 梦想墙</a>
+  </div>
+</nav>
+
+<section class="container-pixel" style="padding-top:60px; padding-bottom:60px;">
+  <div style="text-align:center; margin-bottom:36px;">
+    <span class="pixel-chip">DREAM WALL</span>
+    <h2 class="pixel-title" style="font-size:clamp(22px,4vw,34px); margin-top:14px;">
+      <i class="fa-solid fa-images"></i> 梦想墙
+    </h2>
+    <p class="pixel-sub" style="margin-top:14px;">
+      > 所有人写下的童年梦想，都被 TRAE 收进了这面墙。
+    </p>
+    <div style="margin-top:18px;">
+      <a href="/create.html" class="btn-pixel solid">
+        <i class="fa-solid fa-pen-nib"></i> 我也要写一个
+      </a>
+    </div>
+  </div>
+
+  <div id="wallGrid" class="wall-grid"></div>
+
+  <div id="wallLoading" class="loading">> 正在加载梦想...</div>
+  <div id="wallEmpty" class="empty" style="display:none;">
+    > 还没有梦想，<a style="color:var(--trae-green);" href="/create.html">第一个写下来</a>
+  </div>
+
+  <div style="text-align:center; margin-top:30px;">
+    <button id="loadMore" class="btn-pixel" style="display:none;">
+      <i class="fa-solid fa-angles-down"></i> 加载更多
+    </button>
+    <p id="endTip" class="pixel-sub" style="display:none; font-size:12px; margin-top:14px;">> 已经到底啦，梦想都看完啦 ✨</p>
+  </div>
+</section>
+
+<footer class="foot">
+  <span class="brand-mini">TRAE</span>
+  童年时光机 · 我的梦想档案馆 · 六一快乐
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/js/common.js"></script>
+<script>
+$(function () {
+  TM.decorate(document.body);
+
+  let page = 1;
+  const size = 12;
+  let loading = false;
+  let finished = false;
+
+  function renderItem(d) {
+    const traeHtml = d.trae
+      ? '<div class="trae-text">现在我用 TRAE：' + TM.esc(d.trae) + '</div>'
+      : '';
+    return ''
+      + '<a class="pixel-card dream-card" href="/card.html?id=' + d.id + '" style="text-decoration:none;">'
+      + '  <span class="corner-tl"></span><span class="corner-br"></span>'
+      + '  <div class="nick">'
+      + '    <span><i class="fa-solid fa-user-astronaut"></i> ' + TM.esc(d.nickname) + '</span>'
+      + '    <span class="time">' + TM.fmtTime(d.create_time) + '</span>'
+      + '  </div>'
+      + '  <div class="dream-text">' + TM.esc(d.dream) + '</div>'
+      +    traeHtml
+      + '  <div class="id-tag">DREAM #' + String(d.id).padStart(3, '0') + '</div>'
+      + '</a>';
+  }
+
+  async function load() {
+    if (loading || finished) return;
+    loading = true;
+    $('#loadMore').prop('disabled', true);
+    const res = await TM.api('/api/dreams?page=' + page + '&size=' + size);
+    loading = false;
+    $('#wallLoading').hide();
+
+    if (!res || !res.ok) { TM.toast('加载失败', 'err'); return; }
+    if (page === 1 && (!res.data || res.data.length === 0)) {
+      $('#wallEmpty').show();
+      return;
+    }
+    const html = res.data.map(renderItem).join('');
+    $('#wallGrid').append(html);
+
+    page++;
+    if (!res.hasMore) {
+      finished = true;
+      $('#loadMore').hide();
+      $('#endTip').show();
+    } else {
+      $('#loadMore').show().prop('disabled', false);
+    }
+  }
+
+  $('#loadMore').on('click', load);
+
+  // 无刷新滚动加载
+  $(window).on('scroll', function () {
+    if (loading || finished) return;
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) {
+      load();
+    }
+  });
+
+  load();
+});
+</script>
+</body>
+</html>
