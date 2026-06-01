@@ -23,19 +23,17 @@
 </nav>
 
 <section class="container-pixel" style="max-width:720px; padding-top:60px; padding-bottom:80px;">
-  <h2 class="pixel-title" style="font-size:clamp(22px,4vw,34px); text-align:center;">
+  <h2 class="pixel-title anim-zoom-in-down" style="font-size:clamp(22px,4vw,34px); text-align:center;">
     <i class="fa-solid fa-pen-nib"></i> 写下我的梦想
   </h2>
   <p class="pixel-sub" style="text-align:center; margin-top:18px;">
     > 小时候我想 ______，现在我用 TRAE ______。
   </p>
 
-  <p id="ipTip" class="pixel-sub" style="text-align:center; margin-top:6px; font-size:11px; color:var(--text-fade); min-height:18px;"></p>
-
   <form id="dreamForm" class="pixel-card" style="margin-top:34px;" autocomplete="off" novalidate>
     <span class="corner-tl"></span><span class="corner-br"></span>
 
-    <div class="pixel-field">
+    <div class="pixel-field anim-slide-in-left">
       <label class="pixel-label" for="nickname">
         <i class="fa-solid fa-user-astronaut"></i> 昵称
         <span class="hint">(必填 · 最多 10 字)</span>
@@ -44,7 +42,7 @@
       <span class="pixel-counter" id="nicknameCounter">0 / 10</span>
     </div>
 
-    <div class="pixel-field">
+    <div class="pixel-field anim-slide-in-right">
       <label class="pixel-label" for="dream">
         <i class="fa-solid fa-star"></i> 我的童年梦想
         <span class="hint">(必填 · 5 ~ 100 字)</span>
@@ -53,7 +51,7 @@
       <span class="pixel-counter" id="dreamCounter">0 / 100 （至少5字）</span>
     </div>
 
-    <div class="pixel-field">
+    <div class="pixel-field anim-slide-in-left anim-delay-1">
       <label class="pixel-label" for="trae">
         <i class="fa-solid fa-robot"></i> 现在我用 TRAE 可以 ______
         <span class="hint">(选填 · 最多 50 字)</span>
@@ -62,7 +60,7 @@
       <span class="pixel-counter" id="traeCounter">0 / 50</span>
     </div>
 
-    <div style="display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; margin-top:8px;">
+    <div class="anim-slide-in-up anim-delay-2" style="display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; margin-top:8px;">
       <a href="/" class="btn-pixel ghost"><i class="fa-solid fa-rotate-left"></i> 返回</a>
       <button type="submit" id="submitBtn" class="btn-pixel solid">
         <i class="fa-solid fa-paper-plane"></i> 存入时光机
@@ -86,14 +84,8 @@ $(function () {
   TM.bindCounter('#dream', '#dreamCounter', 100, 5);
   TM.bindCounter('#trae', '#traeCounter', 50);
 
-  // 异步预热指纹 + 显示 IP 归属（走同域后端，避免第三方接口 CORS）
+  // 异步预热指纹
   TM.getFingerprint();
-  TM.getClientInfo().then((d) => {
-    if (!d) return;
-    const loc = [d.country, d.province, d.city].filter(Boolean).join(' · ');
-    const ip = d.ip || '';
-    $('#ipTip').html('> 检测到你的网络标识 <span style="color:var(--trae-green);">' + (loc || ip || '已记录') + '</span>，限同 IP / 设备 24h 内 1 条');
-  });
 
   let submitting = false;
   $('#dreamForm').on('submit', async function (e) {
@@ -123,7 +115,8 @@ $(function () {
 
     if (res && res.ok && res.data && res.data.id) {
       TM.toast('梦想已存入时光机！');
-      setTimeout(() => { location.href = '/card.html?id=' + res.data.id; }, 600);
+      $('#dreamForm').addClass('letter-fly-away');
+      setTimeout(() => { location.href = '/card.html?id=' + res.data.id; }, 1050);
     } else {
       const msg = (res && res.msg) || '提交失败，请稍后重试';
       TM.toast(msg, 'err');

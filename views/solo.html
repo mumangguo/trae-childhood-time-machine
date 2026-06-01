@@ -49,16 +49,6 @@
       <button id="reloadFrame" class="btn-pixel" style="padding:8px 12px; font-size:12px;"><i class="fa-solid fa-rotate"></i> 刷新</button>
     </div>
     <iframe id="soloFrame" class="solo-frame" src="https://solo.trae.cn/" title="TRAE SOLO"></iframe>
-    <div class="solo-frame-mask" id="frameMask" style="display:none;">
-      <div class="pixel-card" style="max-width:560px; text-align:center;">
-        <span class="corner-tl"></span><span class="corner-br"></span>
-        <h2 class="pixel-title" style="font-size:20px;">SOLO 可能禁止嵌入</h2>
-        <p class="pixel-sub" style="line-height:1.8; margin:18px 0;">
-          如果右侧页面空白或无法登录，请点击新标签打开 TRAE SOLO，然后粘贴已复制的提示词。
-        </p>
-        <a class="btn-pixel solid" href="https://solo.trae.cn/" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i> 打开 TRAE SOLO</a>
-      </div>
-    </div>
   </main>
 </section>
 
@@ -117,9 +107,6 @@ $(async function () {
   $('#reloadFrame').on('click', function () {
     document.getElementById('soloFrame').src = 'https://solo.trae.cn/';
   });
-
-  // 无法可靠检测 X-Frame-Options/CSP，延迟展示提示，不遮挡 iframe。
-  setTimeout(() => $('#frameMask').show(), 3500);
 });
 </script>
 </body>

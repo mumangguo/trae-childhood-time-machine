@@ -24,12 +24,12 @@
 
 <section class="container-pixel" style="padding-top:60px; padding-bottom:60px;">
   <div style="text-align:center; margin-bottom:36px;">
-    <span class="pixel-chip">DREAM WALL</span>
+    <span class="pixel-chip">DREAM DANMAKU</span>
     <h2 class="pixel-title" style="font-size:clamp(22px,4vw,34px); margin-top:14px;">
-      <i class="fa-solid fa-images"></i> 梦想墙
+      <i class="fa-solid fa-satellite-dish"></i> 梦想弹幕墙
     </h2>
     <p class="pixel-sub" style="margin-top:14px;">
-      > 所有人写下的童年梦想，都被 TRAE 收进了这面墙。
+      > 所有人写下的童年梦想，像信一样缓缓飘过时光机。
     </p>
     <div style="margin-top:18px;">
       <a href="/create.html" class="btn-pixel solid">
@@ -38,20 +38,16 @@
     </div>
   </div>
 
-  <div id="dbTip" class="pixel-sub" style="display:none; border:1px solid #ff6464; color:#ff6464; padding:12px 16px; margin-bottom:24px; text-align:center; font-size:12px; line-height:1.7;"></div>
-
-  <div id="wallGrid" class="wall-grid"></div>
-
-  <div id="wallLoading" class="loading">> 正在加载梦想...</div>
-  <div id="wallEmpty" class="empty" style="display:none;">
-    > 还没有梦想，<a style="color:var(--trae-green);" href="/create.html">第一个写下来</a>
+  <div id="wallStage" class="danmaku-wall">
+    <div id="wallLoading" class="loading">> 正在加载梦想弹幕...</div>
+    <div id="wallEmpty" class="empty" style="display:none;">
+      > 还没有梦想，<a style="color:var(--trae-green);" href="/create.html">第一个写下来</a>
+    </div>
   </div>
 
-  <div style="text-align:center; margin-top:30px;">
-    <button id="loadMore" class="btn-pixel" style="display:none;">
-      <i class="fa-solid fa-angles-down"></i> 加载更多
-    </button>
-    <p id="endTip" class="pixel-sub" style="display:none; font-size:12px; margin-top:14px;">> 已经到底啦，梦想都看完啦 ✨</p>
+  <div style="text-align:center; margin-top:22px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+    <button id="refreshWall" class="btn-pixel"><i class="fa-solid fa-rotate"></i> 刷新弹幕</button>
+    <a href="/create.html" class="btn-pixel ghost"><i class="fa-solid fa-envelope"></i> 发送我的梦想</a>
   </div>
 </section>
 
@@ -67,71 +63,77 @@
 $(function () {
   TM.decorate(document.body);
 
-  let page = 1;
-  const size = 12;
-  let loading = false;
-  let finished = false;
+  let pool = [];
+  let timer = null;
+  let lastId = null;
 
-  TM.api('/api/health').then((h) => {
-    if (h && h.ok && !h.persistent) {
-      $('#dbTip').text('当前线上数据库是临时模式（tmp-sqlite），冷启动会丢失数据。请在 Vercel 配置 TURSO_DATABASE_URL 和 TURSO_AUTH_TOKEN 后重新部署，梦想墙才会持久保存。').show();
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function pickDream() {
+    if (!pool.length) return null;
+    if (pool.length === 1) return pool[0];
+    let d = pool[Math.floor(Math.random() * pool.length)];
+    let guard = 0;
+    while (d.id === lastId && guard++ < 8) {
+      d = pool[Math.floor(Math.random() * pool.length)];
     }
-  });
+    lastId = d.id;
+    return d;
+  }
 
   function renderItem(d) {
+    const top = rand(4, 82);
+    const dur = rand(22, 42);
+    const scale = rand(.86, 1.08);
     const traeHtml = d.trae
       ? '<div class="trae-text">现在我用 TRAE：' + TM.esc(d.trae) + '</div>'
       : '';
     return ''
-      + '<a class="pixel-card dream-card" href="/card.html?id=' + d.id + '" style="text-decoration:none;">'
+      + '<a class="pixel-card dream-card danmaku-item" href="/card.html?id=' + d.id + '" '
+      + 'style="top:' + top.toFixed(2) + '%; --dur:' + dur.toFixed(2) + 's; --scale:' + scale.toFixed(2) + '; text-decoration:none;">'
       + '  <span class="corner-tl"></span><span class="corner-br"></span>'
       + '  <div class="nick">'
       + '    <span><i class="fa-solid fa-user-astronaut"></i> ' + TM.esc(d.nickname) + '</span>'
       + '    <span class="time">' + TM.fmtTime(d.create_time) + '</span>'
       + '  </div>'
-      + '  <div class="dream-text">' + TM.esc(d.dream) + '</div>'
+      + '  <div class="dream-text">✉ ' + TM.esc(d.dream) + '</div>'
       +    traeHtml
-      + '  <div class="id-tag">DREAM #' + String(d.id).padStart(3, '0') + '</div>'
+      + '  <div class="id-tag">DREAM #' + String(d.id).padStart(3, '0') + ' · 悬停暂停 · 点击查看</div>'
       + '</a>';
   }
 
-  async function load() {
-    if (loading || finished) return;
-    loading = true;
-    $('#loadMore').prop('disabled', true);
-    const res = await TM.api('/api/dreams?page=' + page + '&size=' + size);
-    loading = false;
-    $('#wallLoading').hide();
-
-    if (!res || !res.ok) { TM.toast('加载失败', 'err'); return; }
-    if (page === 1 && (!res.data || res.data.length === 0)) {
-      $('#wallEmpty').show();
-      return;
-    }
-    const html = res.data.map(renderItem).join('');
-    $('#wallGrid').append(html);
-
-    page++;
-    if (!res.hasMore) {
-      finished = true;
-      $('#loadMore').hide();
-      $('#endTip').show();
-    } else {
-      $('#loadMore').show().prop('disabled', false);
-    }
+  function spawnOne() {
+    const d = pickDream();
+    if (!d) return;
+    const $item = $(renderItem(d));
+    $('#wallStage').append($item);
+    const dur = parseFloat($item[0].style.getPropertyValue('--dur')) || 30;
+    setTimeout(() => $item.remove(), (dur + 1) * 1000);
   }
 
-  $('#loadMore').on('click', load);
+  function startDanmaku() {
+    if (timer) clearInterval(timer);
+    $('#wallStage .danmaku-item').remove();
+    // 首屏散点：按时间倒序加载的池子中随机抽取，错峰出现。
+    const firstCount = Math.min(pool.length, 12);
+    for (let i = 0; i < firstCount; i++) setTimeout(spawnOne, i * 520);
+    timer = setInterval(spawnOne, 1500);
+  }
 
-  // 无刷新滚动加载
-  $(window).on('scroll', function () {
-    if (loading || finished) return;
-    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) {
-      load();
-    }
-  });
+  async function loadWall() {
+    if (timer) clearInterval(timer);
+    $('#wallStage .danmaku-item').remove();
+    $('#wallEmpty').hide();
+    $('#wallLoading').show();
+    const res = await TM.api('/api/dreams?page=1&size=50');
+    $('#wallLoading').hide();
+    if (!res || !res.ok) { TM.toast('加载失败', 'err'); return; }
+    if (!res.data || !res.data.length) { $('#wallEmpty').show(); return; }
+    pool = res.data; // 接口按时间倒序返回，随机从最新池子抽取
+    startDanmaku();
+  }
 
-  load();
+  $('#refreshWall').on('click', loadWall);
+  loadWall();
 });
 </script>
 </body>
