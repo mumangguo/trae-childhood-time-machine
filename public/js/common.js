@@ -129,5 +129,44 @@ window.TM = (function () {
     return Array.from(s || '').length;
   }
 
-  return { toast, api, fmtTime, esc, bindCounter, decorate, lenOf };
+  // ---- 浏览器指纹（FingerprintJS 开源版） ----
+  let _fpPromise = null;
+  function getFingerprint() {
+    if (_fpPromise) return _fpPromise;
+    _fpPromise = (async () => {
+      try {
+        const cached = localStorage.getItem('tm_fp');
+        if (cached) return cached;
+        const mod = await import('https://openfpcdn.io/fingerprintjs/v4/esm.min.js');
+        const fp = await mod.load();
+        const r = await fp.get();
+        if (r && r.visitorId) {
+          localStorage.setItem('tm_fp', r.visitorId);
+          return r.visitorId;
+        }
+      } catch (e) { /* fall through */ }
+      // 兜底：本地随机 ID
+      let id = localStorage.getItem('tm_fp');
+      if (!id) {
+        id = 'fb-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('tm_fp', id);
+      }
+      return id;
+    })();
+    return _fpPromise;
+  }
+
+  // ---- B 站 IP 接口（JSONP 风格的 fetch，仅用于前端展示） ----
+  async function getMyIp() {
+    try {
+      const res = await fetch('https://api.bilibili.com/x/web-interface/zone?jsonp=jsonp', {
+        credentials: 'omit'
+      });
+      const j = await res.json();
+      if (j && j.code === 0 && j.data) return j.data; // { addr, country, province, city, isp, ... }
+    } catch (e) {}
+    return null;
+  }
+
+  return { toast, api, fmtTime, esc, bindCounter, decorate, lenOf, getFingerprint, getMyIp };
 })();

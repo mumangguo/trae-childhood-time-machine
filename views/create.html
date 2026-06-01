@@ -30,6 +30,8 @@
     > 小时候我想 ______，现在我用 TRAE ______。
   </p>
 
+  <p id="ipTip" class="pixel-sub" style="text-align:center; margin-top:6px; font-size:11px; color:var(--text-fade); min-height:18px;"></p>
+
   <form id="dreamForm" class="pixel-card" style="margin-top:34px;" autocomplete="off" novalidate>
     <span class="corner-tl"></span><span class="corner-br"></span>
 
@@ -84,6 +86,15 @@ $(function () {
   TM.bindCounter('#dream', '#dreamCounter', 100, 5);
   TM.bindCounter('#trae', '#traeCounter', 50);
 
+  // 异步预热指纹 + 显示 IP 归属
+  TM.getFingerprint();
+  TM.getMyIp().then((d) => {
+    if (!d) return;
+    const loc = [d.country, d.province, d.city].filter(Boolean).join(' · ');
+    const addr = d.addr || '';
+    $('#ipTip').html('> 检测到你来自 <span style="color:var(--trae-green);">' + (loc || addr) + '</span>，限同 IP / 设备 24h 内 1 条');
+  });
+
   let submitting = false;
   $('#dreamForm').on('submit', async function (e) {
     e.preventDefault();
@@ -104,16 +115,18 @@ $(function () {
     const html = $btn.html();
     $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 存档中...');
 
+    const fp = await TM.getFingerprint();
     const res = await TM.api('/api/dream', {
       method: 'POST',
-      body: JSON.stringify({ nickname, dream, trae })
+      body: JSON.stringify({ nickname, dream, trae, fp })
     });
 
     if (res && res.ok && res.data && res.data.id) {
       TM.toast('梦想已存入时光机！');
       setTimeout(() => { location.href = '/card.html?id=' + res.data.id; }, 600);
     } else {
-      TM.toast((res && res.msg) || '提交失败，请稍后重试', 'err');
+      const msg = (res && res.msg) || '提交失败，请稍后重试';
+      TM.toast(msg, 'err');
       submitting = false;
       $btn.prop('disabled', false).html(html);
     }

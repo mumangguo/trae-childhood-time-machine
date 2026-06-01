@@ -1,20 +1,16 @@
 /**
  * 童年时光机 · 我的梦想档案馆
- * Express + @libsql/client (Turso)
- *
- * 环境变量：
- *   TURSO_DATABASE_URL  Turso 数据库 URL（libsql://xxx.turso.io 或 file:./data/dreams.db）
- *   TURSO_AUTH_TOKEN    Turso 鉴权 token（远端必填，本地 file: 可省略）
- *
- * 不设环境变量时，本地默认落到 ./data/dreams.db 文件。
+ * Express + @libsql/client (Turso) + 敏感词过滤 + 24h IP/fp 限流
  */
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { createClient } = require('@libsql/client');
+const sensitive = require('./lib/sensitive');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', true);
 
 // ---------- 数据库 ----------
 function buildDbConfig() {
@@ -24,7 +20,6 @@ function buildDbConfig() {
       authToken: process.env.TURSO_AUTH_TOKEN || undefined,
     };
   }
-  // 本地兜底：写入 ./data/dreams.db
   const dir = path.join(__dirname, 'data');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return { url: 'file:' + path.join(dir, 'dreams.db') };
@@ -42,11 +37,21 @@ let dbReady = (async () => {
       create_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS submitters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip          TEXT,
+      fp          TEXT,
+      dream_id    INTEGER,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_submitters_ip ON submitters(ip, created_at)`);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_submitters_fp ON submitters(fp, created_at)`);
 })().catch((e) => {
   console.error('DB init failed:', e);
 });
 
-// 中间件：确保表已创建后再处理 API
 async function ensureDb(req, res, next) {
   try { await dbReady; next(); }
   catch (e) { res.status(500).json({ ok: false, msg: '数据库初始化失败' }); }
@@ -57,14 +62,15 @@ app.use(express.json({ limit: '32kb' }));
 app.use(express.urlencoded({ extended: false, limit: '32kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- 简单防重复提交（IP + 内容 hash, 5s 内拒绝） ----------
+// ---------- 工具 ----------
+function clientIp(req) {
+  const xff = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+  return xff || (req.socket.remoteAddress || '').replace('::ffff:', '') || 'unknown';
+}
+
 const recentSubmits = new Map();
-function antiSpam(req) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown')
-    .toString()
-    .split(',')[0]
-    .trim();
-  const key = ip + '|' + (req.body.nickname || '') + '|' + (req.body.dream || '');
+function antiSpam(ip, body) {
+  const key = ip + '|' + (body.nickname || '') + '|' + (body.dream || '');
   const now = Date.now();
   const last = recentSubmits.get(key);
   if (last && now - last < 5000) return true;
@@ -75,14 +81,27 @@ function antiSpam(req) {
   return false;
 }
 
+// 24h 内 IP / fp 是否已经成功发过
+async function already24h(ip, fp) {
+  const since = "datetime('now','-24 hours')";
+  const rs = await db.execute({
+    sql: `SELECT id FROM submitters
+            WHERE created_at >= ${since}
+              AND ( (ip IS NOT NULL AND ip = ?) OR (fp IS NOT NULL AND fp = ?) )
+            LIMIT 1`,
+    args: [ip || '', fp || ''],
+  });
+  return rs.rows.length > 0;
+}
+
 // ---------- API ----------
-// 发布梦想
 app.post('/api/dream', ensureDb, async (req, res) => {
   try {
-    let { nickname, dream, trae } = req.body || {};
+    let { nickname, dream, trae, fp } = req.body || {};
     nickname = (nickname || '').toString().trim();
     dream = (dream || '').toString().trim();
     trae = (trae || '').toString().trim();
+    fp = (fp || '').toString().trim().slice(0, 64);
 
     if (!nickname || nickname.length > 10) {
       return res.status(400).json({ ok: false, msg: '昵称必填，且不超过10字' });
@@ -93,8 +112,23 @@ app.post('/api/dream', ensureDb, async (req, res) => {
     if (trae && trae.length > 50) {
       return res.status(400).json({ ok: false, msg: 'TRAE实现句不超过50字' });
     }
-    if (antiSpam(req)) {
+
+    const ip = clientIp(req);
+
+    if (antiSpam(ip, { nickname, dream })) {
       return res.status(429).json({ ok: false, msg: '提交太快啦，请稍后再试' });
+    }
+
+    if (sensitive.anyDirty(nickname, dream, trae)) {
+      return res.status(400).json({ ok: false, code: 'DIRTY', msg: '内容包含违禁词，请修改后再提交' });
+    }
+
+    if (await already24h(ip, fp)) {
+      return res.status(429).json({
+        ok: false,
+        code: 'RATE_LIMIT',
+        msg: '24小时内每人只能写一条梦想哦，明天再来续写吧 ✨',
+      });
     }
 
     const result = await db.execute({
@@ -102,6 +136,12 @@ app.post('/api/dream', ensureDb, async (req, res) => {
       args: [nickname, dream, trae || null],
     });
     const id = Number(result.lastInsertRowid);
+
+    await db.execute({
+      sql: 'INSERT INTO submitters (ip, fp, dream_id) VALUES (?, ?, ?)',
+      args: [ip || '', fp || '', id],
+    });
+
     const row = await getOne(id);
     res.json({ ok: true, data: row });
   } catch (e) {
@@ -110,7 +150,6 @@ app.post('/api/dream', ensureDb, async (req, res) => {
   }
 });
 
-// 列表（分页）
 app.get('/api/dreams', ensureDb, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -133,7 +172,6 @@ app.get('/api/dreams', ensureDb, async (req, res) => {
   }
 });
 
-// 单条
 app.get('/api/dream/:id', ensureDb, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -149,7 +187,6 @@ app.get('/api/dream/:id', ensureDb, async (req, res) => {
 
 // ---------- 工具 ----------
 function rowToObj(row) {
-  // libsql Row 是数组风格，但带列名属性
   return {
     id: Number(row.id),
     nickname: row.nickname,
@@ -166,7 +203,7 @@ async function getOne(id) {
   return rs.rows[0] ? rowToObj(rs.rows[0]) : null;
 }
 
-// ---------- 页面路由 ----------
+// ---------- 页面 ----------
 const VIEWS = path.join(__dirname, 'views');
 const sendPage = (file) => (_req, res) => res.sendFile(path.join(VIEWS, file));
 
@@ -178,12 +215,10 @@ app.get('/card.html', sendPage('card.html'));
 app.get('/wall', sendPage('wall.html'));
 app.get('/wall.html', sendPage('wall.html'));
 
-// 404
 app.use((_req, res) => {
   res.status(404).sendFile(path.join(VIEWS, '404.html'));
 });
 
-// 本地启动
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`\n童年时光机已启动 → http://localhost:${PORT}\n`);
